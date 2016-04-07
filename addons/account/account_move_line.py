@@ -439,11 +439,24 @@ class account_move_line(osv.osv):
 
     def _get_reconcile(self, cr, uid, ids,name, unknow_none, context=None):
         res = dict.fromkeys(ids, False)
-        for line in self.browse(cr, uid, ids, context=context):
-            if line.reconcile_id:
-                res[line.id] = str(line.reconcile_id.name)
-            elif line.reconcile_partial_id:
-                res[line.id] = str(line.reconcile_partial_id.name)
+        cr.execute("""
+                   SELECT l.id,
+                          CASE WHEN (l.reconcile_id is not null)
+                            THEN r.name
+                          WHEN (l.reconcile_partial_id is not null)
+                            THEN rp.name
+                          ELSE '' END as rname
+                   FROM account_move_line as l
+                   LEFT OUTER JOIN account_move_reconcile AS r
+                        ON r.id=l.reconcile_id
+                   LEFT OUTER JOIN account_move_reconcile AS rp
+                        ON rp.id=l.reconcile_partial_id
+                   WHERE l.id IN %s;
+                   """,
+                   (tuple(ids),)
+                   )
+        for result in cr.fetchall():
+            res[result[0]] = result[1]
         return res
 
     def _get_move_from_reconcile(self, cr, uid, ids, context=None):
