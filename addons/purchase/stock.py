@@ -186,15 +186,27 @@ class stock_move(osv.osv):
 
 class stock_picking(osv.osv):
     _inherit = 'stock.picking'
-    
+
     def _get_to_invoice(self, cr, uid, ids, name, args, context=None):
-        res = {}
-        for picking in self.browse(cr, uid, ids, context=context):
-            res[picking.id] = False
-            for move in picking.move_lines:
-                if move.purchase_line_id and move.purchase_line_id.order_id.invoice_method == 'picking':
-                    if not move.move_orig_ids:
-                        res[picking.id] = True
+        res = dict.fromkeys(ids, False)
+        cr.execute("""
+        SELECT p.id,
+                CASE WHEN(po.invoice_method = 'picking'
+                        AND NOT EXISTS (SELECT id
+                                        FROM stock_move
+                                        WHERE move_dest_id=m.id))
+                        THEN true
+                    ELSE false
+                END AS b
+        FROM stock_picking AS p
+        INNER JOIN stock_move As m ON m.picking_id=p.id
+        INNER JOIN purchase_order_line AS pl ON pl.id=m.purchase_line_id
+        INNER JOIN purchase_order AS po ON po.id=pl.order_id
+        WHERE p.id IN %s
+        GROUP BY p.id, po.invoice_method, m.id
+                   """, (tuple(ids), ))
+        for picking in cr.fetchall():
+            res[picking[0]] = picking[1]
         return res
 
     def _get_picking_to_recompute(self, cr, uid, ids, context=None):
@@ -233,7 +245,7 @@ class stock_picking(osv.osv):
 class stock_warehouse(osv.osv):
     _inherit = 'stock.warehouse'
     _columns = {
-        'buy_to_resupply': fields.boolean('Purchase to resupply this warehouse', 
+        'buy_to_resupply': fields.boolean('Purchase to resupply this warehouse',
                                           help="When products are bought, they can be delivered to this warehouse"),
         'buy_pull_id': fields.many2one('procurement.rule', 'Buy rule'),
     }
