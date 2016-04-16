@@ -43,6 +43,318 @@ default_spec = {
     ],
 }
 
+# Method used to determinate the action to create the quant depending the type
+# of the picking
+create_quant_by_picking = '''
+DROP FUNCTION IF EXISTS create_quant_by_picking(move stock_move);
+CREATE OR REPLACE FUNCTION create_quant_by_picking(move stock_move)
+RETURNS integer AS $$
+    DECLARE
+        quant integer;
+        picking stock_picking%rowtype;
+    BEGIN
+        SELECT * INTO picking FROM stock_picking WHERE id=move.picking_id;
+        IF picking.openupgrade_legacy_8_0_type = 'in' THEN
+            SELECT create_quants(move, 'create') INTO quant;
+
+
+        ELSIF picking.openupgrade_legacy_8_0_type IN ('internal', 'out') THEN
+            IF EXISTS (SELECT id FROM
+                         stock_location
+                        WHERE id=move.location_id AND usage='inventory') THEN
+                SELECT create_quants(move, 'create') INTO quant;
+            ELSE
+                SELECT create_quants(move, 'exists') INTO quant;
+            END IF;
+        END IF;
+
+        RETURN quant; END;
+    $$ LANGUAGE plpgsql;
+'''
+
+# Method used to determinate the action to create the quant depending f the
+# move was a BOM of a manufacturing order or it was the finished product
+create_quant_by_mrp = '''
+DROP FUNCTION IF EXISTS create_quant_by_mrp(move stock_move);
+CREATE OR REPLACE FUNCTION create_quant_by_mrp(move stock_move)
+RETURNS integer AS $$
+    DECLARE
+        quant integer;
+    BEGIN
+
+        /* Creting the finished product */
+        IF move.production_id is not null THEN
+            SELECT create_quants(move, 'create') INTO quant;
+
+        /* Moving the row material */
+        ELSIF move.raw_material_production_id is not null THEN
+            SELECT create_quants(move, 'exists') INTO quant;
+        END IF;
+
+        RETURN quant; END;
+    $$ LANGUAGE plpgsql;
+'''
+
+# Method used to get the location child of the source location of the move
+get_child_locations = '''
+DROP FUNCTION IF EXISTS get_child_locations(source_location integer);
+CREATE OR REPLACE FUNCTION get_child_locations(source_location integer)
+RETURNS integer[] AS $$
+    DECLARE
+        returned integer[];
+    BEGIN
+        SELECT array_agg(id) INTO returned
+        FROM (WITH RECURSIVE tree AS (
+              SELECT id, ARRAY[]::INTEGER[] AS ancestors
+              FROM stock_location WHERE location_id IS NULL
+              UNION ALL
+              SELECT stock_location.id,
+                     tree.ancestors || stock_location.location_id
+              FROM stock_location, tree
+              WHERE stock_location.location_id = tree.id
+            )
+            SELECT *
+            FROM tree
+            WHERE source_location = ANY(tree.ancestors) OR
+                  id = source_location) AS a;
+        RETURN returned; END;
+    $$ LANGUAGE plpgsql;
+'''
+
+# This function only creates the quant object and return the id of the new
+# quant
+create_and_return_quant = '''
+DROP FUNCTION IF EXISTS create_quant_and_return(move stock_move, qcost float,
+                                                quantity float,
+                                                location integer,
+                                                negative integer,
+                                                nmove integer,
+                                                lot integer);
+CREATE OR REPLACE FUNCTION create_quant_and_return(move stock_move,
+                                                   qcost float,
+                                                   quantity float,
+                                                   location integer,
+                                                   negative integer,
+                                                   nmove integer,
+                                                   lot integer)
+                                            RETURNS integer AS $$
+    DECLARE
+        returned integer;
+        super_admin integer;
+    BEGIN
+        super_admin := 1;
+        /* Creating Quant */
+        INSERT INTO stock_quant (create_date, qty,
+            propagated_from_id, package_id, cost, lot_id,
+            reservation_id, create_uid, location_id, company_id,
+            owner_id,  write_date, write_uid, product_id,
+            packaging_type_id, negative_move_id, in_date) VALUES
+        (move.write_date, quantity, negative, null,
+            qcost, lot, null, super_admin,
+            location, move.company_id, null,
+            move.write_date, super_admin, move.product_id, null, nmove,
+            move.date) RETURNING id INTO returned;
+
+        RETURN returned; END;
+    $$ LANGUAGE plpgsql;
+'''
+
+# Method use to manage the logic to the negative quant and the updating of the
+# costs
+create_quants = '''
+DROP FUNCTION IF EXISTS create_quants(move stock_move, action varchar);
+CREATE OR REPLACE FUNCTION create_quants(move stock_move, action varchar)
+RETURNS integer AS $$
+    DECLARE
+        returned integer;
+        negative_quant stock_quant%rowtype;
+        quant_to_use stock_quant%rowtype;
+        propagate stock_quant%rowtype;
+        super_admin integer;
+        neg_qty float;
+        current_qty float;
+        locations integer[];
+
+    BEGIN
+        super_admin := 1;
+        IF action = 'create' THEN
+            IF EXISTS (SELECT id FROM stock_quant
+                       WHERE qty < 0 AND product_id=move.product_id AND
+                       location_id=move.location_dest_id) THEN
+                current_qty := move.product_uom_qty;
+                FOR negative_quant IN SELECT * FROM stock_quant
+                                       WHERE qty < 0 AND
+                                             product_id=move.product_id AND
+                                             location_id=move.location_dest_id
+                                            ORDER BY in_date ASC LOOP
+                    neg_qty := negative_quant.qty;
+                    FOR propagate IN SELECT * FROM stock_quant WHERE propagated_from_id=negative_quant.id ORDER BY qty DESC LOOP
+                        IF current_qty < propagate.qty AND current_qty > 0 THEN
+                            /* Creating Quant */
+                            SELECT create_quant_and_return(move, move.price_unit,
+                                                           current_qty,
+                                                           propagate.location_id,
+                                                           null, null,
+                                                           move.openupgrade_legacy_8_0_prodlot_id)
+                                                    INTO returned;
+                            /* Updating the quantites of the negative quant the postive quant alive */
+                            UPDATE stock_quant
+                            SET qty=neg_qty+current_qty
+                            WHERE id=negative_quant.id;
+                            UPDATE stock_quant
+                            SET qty=qty-current_qty
+                            WHERE id=propagate.id;
+                            /* Creating the relation between move and quant */
+                            INSERT INTO stock_quant_move_rel (quant_id, move_id)
+                            VALUES (returned, move.id);
+                            INSERT INTO stock_quant_move_rel (quant_id, move_id)
+                                        (SELECT returned, rel.move_id
+                                         FROM stock_quant_move_rel AS rel
+                                        WHERE rel.quant_id=propagate.id);
+                            current_qty := 0;
+
+                        ELSIF current_qty >= propagate.qty AND
+                              current_qty > 0 THEN
+                            /* Updating the quantites of the negative quant the postive quant alive */
+                            UPDATE stock_quant
+                            SET cost=move.price_unit,
+                                lot_id=move.openupgrade_legacy_8_0_prodlot_id,
+                                propagated_from_id=null
+                            WHERE id=propagate.id;
+                            /* Creating the relation between move and quant */
+                            INSERT INTO stock_quant_move_rel (quant_id, move_id)
+                            VALUES (propagate.id, move.id);
+                            current_qty := current_qty - propagate.qty;
+                            IF (propagate.qty + neg_qty) >= 0 THEN
+                                DELETE FROM stock_quant WHERE id=negative_quant.id;
+                            ELSE
+                                neg_qty := propagate.qty + neg_qty;
+                                UPDATE stock_quant
+                                SET qty=neg_qty
+                                WHERE id=negative_quant.id;
+                            END IF;
+                            returned := propagate.id;
+                        END IF;
+                    END LOOP;
+                END LOOP;
+                IF current_qty > 0 THEN
+                    /* Creating Quant */
+                    SELECT create_quant_and_return(move, move.price_unit,
+                                                   current_qty,
+                                                   move.location_dest_id,
+                                                   null, null,
+                                                   move.openupgrade_legacy_8_0_prodlot_id) INTO returned;
+                    /* Creating the history */
+                    INSERT INTO stock_quant_move_rel (quant_id, move_id)
+                    VALUES (returned, move.id);
+                END IF;
+
+            ELSE
+                /* Creating Quant */
+                SELECT create_quant_and_return(move, move.price_unit,
+                                               move.product_uom_qty,
+                                               move.location_dest_id, null,
+                                               null, move.openupgrade_legacy_8_0_prodlot_id) INTO returned;
+                /* Creating the history */
+                INSERT INTO stock_quant_move_rel (quant_id, move_id)
+                VALUES (returned, move.id);
+            END IF;
+
+        ELSIF action = 'exists' THEN
+            SELECT get_child_locations(move.location_id) INTO locations;
+            IF EXISTS (SELECT id FROM stock_quant
+                       WHERE qty > 0 AND product_id=move.product_id
+                             AND location_id = ANY(locations)
+                             AND in_date <= move.date) THEN
+                current_qty := move.product_uom_qty;
+                FOR quant_to_use IN SELECT *
+                                    FROM stock_quant
+                                    WHERE qty > 0
+                                          AND product_id=move.product_id
+                                          AND location_id = ANY(locations)
+                                          AND lot_id = move.openupgrade_legacy_8_0_prodlot_id
+                                          AND in_date <= move.date
+                                    ORDER BY in_date ASC LOOP
+                    IF current_qty < quant_to_use.qty AND current_qty > 0 THEN
+                        /* Creating Quant */
+                        SELECT create_quant_and_return(move,
+                                                       quant_to_use.cost,
+                                                       current_qty,
+                                                       move.location_dest_id,
+                                                    quant_to_use.propagated_from_id,
+                                                    null,
+                                                    move.openupgrade_legacy_8_0_prodlot_id)
+                                                INTO returned;
+                        /* Creating the history */
+                        INSERT INTO stock_quant_move_rel (quant_id, move_id)
+                        VALUES (returned, move.id);
+                        INSERT INTO stock_quant_move_rel (quant_id, move_id)
+                                    (SELECT returned, rel.move_id
+                                     FROM stock_quant_move_rel AS rel
+                                    WHERE rel.quant_id=quant_to_use.id);
+                        /* Updating the quantites of the rest of the quant*/
+                        UPDATE stock_quant SET qty=qty-current_qty
+                        WHERE id=quant_to_use.id;
+                        current_qty := 0;
+                    END IF;
+                    IF current_qty >= quant_to_use.qty AND current_qty > 0 THEN
+                        /* Moved the quant to the respective location */
+                        UPDATE stock_quant
+                        SET location_id=move.location_dest_id
+                        WHERE id=quant_to_use.id;
+                        /* Creating the history */
+                        INSERT INTO stock_quant_move_rel (quant_id, move_id)
+                        VALUES (quant_to_use.id, move.id);
+                        current_qty := current_qty - quant_to_use.qty;
+                        returned := quant_to_use.id;
+                    END IF;
+
+                END LOOP;
+                IF current_qty > 0 THEN
+                    /* Creating Quant */
+                    SELECT create_quant_and_return(move, move.price_unit,
+                                                   -1 * current_qty,
+                                                   move.location_id, null,
+                                                   move.id,
+                                                   move.openupgrade_legacy_8_0_prodlot_id) INTO returned;
+                    /* Creating relation */
+                    INSERT INTO stock_quant_move_rel (quant_id, move_id)
+                    VALUES (returned, move.id);
+                    SELECT create_quant_and_return(move, move.price_unit,
+                                                   current_qty,
+                                                   move.location_dest_id,
+                                                   returned, null,
+                                                   move.openupgrade_legacy_8_0_prodlot_id)
+                                            INTO returned;
+                    /* Creating relation */
+                    INSERT INTO stock_quant_move_rel (quant_id, move_id)
+                    VALUES (returned, move.id);
+                END IF;
+            ELSE
+                /* Creating Quant */
+                SELECT create_quant_and_return(move, move.price_unit,
+                                               -1 * move.product_uom_qty,
+                                              move.location_id, null,
+                                              move.id,
+                                              move.openupgrade_legacy_8_0_prodlot_id) INTO returned;
+                /* Creating relation */
+                INSERT INTO stock_quant_move_rel (quant_id, move_id)
+                VALUES (returned, move.id);
+                SELECT create_quant_and_return(move, move.price_unit,
+                                               move.product_uom_qty,
+                                               move.location_dest_id,
+                                               returned, null, move.openupgrade_legacy_8_0_prodlot_id) INTO returned;
+                /* Creating relation */
+                INSERT INTO stock_quant_move_rel (quant_id, move_id)
+                VALUES (returned, move.id);
+            END IF;
+
+        END IF;
+
+        RETURN returned; END;
+    $$ LANGUAGE plpgsql;
+'''
+
 
 def migrate_product(cr, registry):
     """Migrate track_incoming, track_outgoing"""
@@ -688,30 +1000,38 @@ def migrate_stock_qty(cr, registry):
     '''.format(openupgrade.get_legacy_name('prodlot_id'))
     openupgrade.logged_query(cr, sql)
 
-    with api.Environment.manage():
-        env = api.Environment(cr, SUPERUSER_ID, {})
-        done_moves = env['stock.move'].search(
-            [('state', '=', 'done')], order="date")
-        openupgrade.message(
-            cr, 'stock', 'stock_move', 'state',
-            'Reprocess %s stock moves in state done to fill stock.quant',
-            len(done_moves.ids))
-        done_moves.write({'state': 'draft'})
-        # disable all workflow steps - massive performance boost, no side
-        # effects of workflow transitions with yet unknown condition
-        set_workflow_org = models.BaseModel.step_workflow
-        models.BaseModel.step_workflow = lambda *args, **kwargs: None
-        # Process moves using action_done.
-        for move in done_moves:
-            date_done = move.date
-            move.action_done()
-            # Rewrite date to keep old data
-            move.date = date_done
-            # Assign the same date for the created quants (not the existing)
-            quants_to_rewrite = move.quant_ids.filtered(
-                lambda x: x.in_date > date_done)
-            quants_to_rewrite.write({'in_date': date_done})
-        models.BaseModel.step_workflow = set_workflow_org
+    logger.info("Creating sql methods to create the quants")
+    # Creating Method create_quant_by_picking
+    print '1'
+    cr.execute(create_quant_by_picking)
+    # Creating Method create_quant_by_mrp
+    print '2'
+    cr.execute(create_quant_by_mrp)
+    # Creating Method get_child_locations
+    print '3'
+    cr.execute(get_child_locations)
+    # Creating Method create_and_return_quant
+    print '4'
+    cr.execute(create_and_return_quant)
+    # Creating Method create_quants
+    print '5'
+    cr.execute(create_quants)
+    print '6'
+    sql = '''
+SELECT CASE WHEN (move.picking_id is not null) THEN create_quant_by_picking(move)
+            WHEN (move.production_id is not null) THEN create_quants(move, 'create')
+            WHEN EXISTS (SELECT move_id FROM
+                         mrp_production_move_ids
+                        WHERE move_id=move.id) THEN create_quants(move, 'exists')
+            WHEN EXISTS (SELECT id FROM
+                         stock_location
+                        WHERE id=move.location_id AND usage='inventory')
+                    THEN create_quants(move, 'create')
+            ELSE create_quants(move, 'exists') END AS quants
+FROM stock_move AS move WHERE move.state = 'done' ORDER BY date ASC;
+        '''
+    openupgrade.logged_query(cr, sql)
+    models.BaseModel.step_workflow = lambda *args, **kwargs: None
 
 
 def migrate_stock_production_lot(cr, registry):
@@ -741,19 +1061,19 @@ def migrate_stock_production_lot(cr, registry):
             %s IS NOT NULL AND
             picking_id IS NULL""" % (
         field_name, field_name))
-    res1 = cr.fetchall()
-    for move, lot in res1:
-        cr.execute("""
-            SELECT quant_id
-            FROM stock_quant_move_rel
-            WHERE move_id = %s""" % (move,))
-        res2 = cr.fetchall()
-        for quant in res2:
-            cr.execute("""
-                UPDATE stock_quant
-                SET lot_id = %s
-                WHERE id = %s""" % (lot, quant[0],))
-        cr.commit()
+    # res1 = cr.fetchall()
+    # for move, lot in res1:
+    #     cr.execute("""
+    #         SELECT quant_id
+    #         FROM stock_quant_move_rel
+    #         WHERE move_id = %s""" % (move,))
+    #     res2 = cr.fetchall()
+    #     for quant in res2:
+    #         cr.execute("""
+    #             UPDATE stock_quant
+    #             SET lot_id = %s
+    #             WHERE id = %s""" % (lot, quant[0],))
+    #     cr.commit()
 
 
 def reset_warehouse_data_ids(cr, registry):
