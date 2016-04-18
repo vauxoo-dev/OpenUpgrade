@@ -114,64 +114,73 @@ def migrate_procurement_order_method(cr, pool):
         # which can be okay if procurement was not installed in the 7.0 db
         return
 
-    procurement_obj = pool['procurement.order']
-    rule_obj = pool['procurement.rule']
-    rules = {}
-    for rule in rule_obj.browse(
-            cr, SUPERUSER_ID,
-            rule_obj.search(cr, SUPERUSER_ID, [])):
-        rules.setdefault(
-            rule.location_id.id, {})[rule.procure_method] = rule.id
-        rules.setdefault(rule.location_id.id, {})[rule.action] = rule.id
+    sql = '''
+DROP FUNCTION IF EXISTS assign_procurement_rule(procurement procurement_order);
+CREATE OR REPLACE FUNCTION assign_procurement_rule(procurement procurement_order)
+RETURNS integer AS $$
+    DECLARE
+        rule integer;
+        location stock_location%rowtype;
+        paction varchar;
+        supply varchar;
+    BEGIN
+        supply := (SELECT pt.{sup_method}
+                   FROM product_product AS p
+                   INNER JOIN product_template AS pt ON pt.id = p.product_tmpl_id LIMIT 1);
+        SELECT * INTO location FROM stock_location WHERE id=procurement.location_id;
+        IF procurement.{pro_method} = 'make_to_order' THEN
+            IF location.usage = 'internal' THEN
+                IF supply = 'manufacture' THEN
+                    paction := 'manufacture';
+                ELSE
+                    paction := 'buy';
+                END IF;
+                rule := (SELECT id FROM procurement_rule WHERE location_id=location.id AND action=paction LIMIT 1);
+            ELSE
+                rule := (SELECT id FROM procurement_rule WHERE location_id=location.id AND action='make_to_order' LIMIT 1);
+            END IF;
+        ELSE
+            rule := (SELECT id FROM procurement_rule WHERE location_id=location.id AND action='make_to_stock' LIMIT 1);
+        END IF;
+        IF rule is not null THEN
+            UPDATE procurement_order SET rule_id=rule WHERE id=procurement.id;
+        END IF;
 
+        RETURN rule; END;
+    $$ LANGUAGE plpgsql;
+    '''.format(pro_method=procure_method_legacy,
+               sup_method=openupgrade.get_legacy_name('supply_method'))
+    cr.execute(sql)
+
+    logger.debug(
+        "Trying to find rules for procurements")
+    cr.execute('''SELECT assign_procurement_rule(procu)
+                  FROM procurement_order AS procu
+                  WHERE rule_id is null
+                        AND state != 'done'
+               ''')
     cr.execute(
         """
-        SELECT pp.id FROM product_product pp, product_template pt
-        WHERE pp.product_tmpl_id = pt.id
-            AND pt.%s = 'produce'
-        """ % openupgrade.get_legacy_name('supply_method'))
-    production_products = [row[0] for row in cr.fetchall()]
-
-    cr.execute(
-        """
-        SELECT id, %s FROM procurement_order
+        SELECT p.id,
+               p.%s,
+               l.id,
+               l.usage,
+               p.product_id,
+               l.name
+        FROM procurement_order AS p
+        INNER JOIN stock_location AS l ON l.id=p.location_id
         WHERE rule_id is NULL AND state != %%s
         """ % procure_method_legacy, ('done',))
 
     procurements = cr.fetchall()
-    if len(procurements):
-        logger.debug(
-            "Trying to find rules for %s procurements", len(procurements))
+    for procur in procurements:
+        logger.warn(
+            "Procurement order #%s with location %s "
+            "has no %s procurement rule, please create and "
+            "assign a new rule for this procurement""",
+            procur[0], procur[5],
+            procur[1])
 
-    for proc_id, procure_method in procurements:
-        procurement = procurement_obj.browse(cr, SUPERUSER_ID, proc_id)
-        location_id = procurement.location_id.id
-
-        # if location type is internal (presumably stock), then
-        # find the rule with this location and the appropriate action,
-        # regardless of procure method
-        rule_id = False
-        action = 'move'  # Default, only for log message
-        if procure_method == 'make_to_order':
-            if procurement.location_id.usage == 'internal':
-                if procurement.product_id.id in production_products:
-                    action = 'manufacture'
-                else:
-                    action = 'buy'
-                rule_id = rules.get(location_id, {}).get(action)
-            else:
-                rule_id = rules.get(location_id, {}).get('make_to_order')
-        else:
-            rule_id = rules.get(location_id, {}).get('make_to_stock')
-        if rule_id:
-            procurement.write({'rule_id': rule_id})
-        else:
-            logger.warn(
-                "Procurement order #%s with location %s "
-                "has no %s procurement rule with action %s, please create and "
-                "assign a new rule for this procurement""",
-                procurement.id, procurement.location_id.name,
-                procure_method, action)
 
 
 def migrate_stock_move_warehouse(cr):
