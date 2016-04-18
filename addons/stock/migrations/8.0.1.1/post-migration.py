@@ -195,7 +195,7 @@ RETURNS integer AS $$
                                                            current_qty,
                                                            propagate.location_id,
                                                            null, null,
-                                                           move.openupgrade_legacy_8_0_prodlot_id)
+                                                           null)
                                                     INTO returned;
                             /* Updating the quantites of the negative quant the postive quant alive */
                             UPDATE stock_quant
@@ -218,7 +218,6 @@ RETURNS integer AS $$
                             /* Updating the quantites of the negative quant the postive quant alive */
                             UPDATE stock_quant
                             SET cost=move.price_unit,
-                                lot_id=move.openupgrade_legacy_8_0_prodlot_id,
                                 propagated_from_id=null
                             WHERE id=propagate.id;
                             /* Creating the relation between move and quant */
@@ -243,7 +242,7 @@ RETURNS integer AS $$
                                                    current_qty,
                                                    move.location_dest_id,
                                                    null, null,
-                                                   move.openupgrade_legacy_8_0_prodlot_id) INTO returned;
+                                                   null) INTO returned;
                     /* Creating the history */
                     INSERT INTO stock_quant_move_rel (quant_id, move_id)
                     VALUES (returned, move.id);
@@ -254,7 +253,7 @@ RETURNS integer AS $$
                 SELECT create_quant_and_return(move, move.price_unit,
                                                move.product_uom_qty,
                                                move.location_dest_id, null,
-                                               null, move.openupgrade_legacy_8_0_prodlot_id) INTO returned;
+                                               null, null) INTO returned;
                 /* Creating the history */
                 INSERT INTO stock_quant_move_rel (quant_id, move_id)
                 VALUES (returned, move.id);
@@ -272,7 +271,6 @@ RETURNS integer AS $$
                                     WHERE qty > 0
                                           AND product_id=move.product_id
                                           AND location_id = ANY(locations)
-                                          AND lot_id = move.openupgrade_legacy_8_0_prodlot_id
                                           AND in_date <= move.date
                                     ORDER BY in_date ASC LOOP
                     IF current_qty < quant_to_use.qty AND current_qty > 0 THEN
@@ -283,7 +281,7 @@ RETURNS integer AS $$
                                                        move.location_dest_id,
                                                     quant_to_use.propagated_from_id,
                                                     null,
-                                                    move.openupgrade_legacy_8_0_prodlot_id)
+                                                    null)
                                                 INTO returned;
                         /* Creating the history */
                         INSERT INTO stock_quant_move_rel (quant_id, move_id)
@@ -316,7 +314,7 @@ RETURNS integer AS $$
                                                    -1 * current_qty,
                                                    move.location_id, null,
                                                    move.id,
-                                                   move.openupgrade_legacy_8_0_prodlot_id) INTO returned;
+                                                   null) INTO returned;
                     /* Creating relation */
                     INSERT INTO stock_quant_move_rel (quant_id, move_id)
                     VALUES (returned, move.id);
@@ -324,7 +322,7 @@ RETURNS integer AS $$
                                                    current_qty,
                                                    move.location_dest_id,
                                                    returned, null,
-                                                   move.openupgrade_legacy_8_0_prodlot_id)
+                                                   null)
                                             INTO returned;
                     /* Creating relation */
                     INSERT INTO stock_quant_move_rel (quant_id, move_id)
@@ -336,14 +334,14 @@ RETURNS integer AS $$
                                                -1 * move.product_uom_qty,
                                               move.location_id, null,
                                               move.id,
-                                              move.openupgrade_legacy_8_0_prodlot_id) INTO returned;
+                                              null) INTO returned;
                 /* Creating relation */
                 INSERT INTO stock_quant_move_rel (quant_id, move_id)
                 VALUES (returned, move.id);
                 SELECT create_quant_and_return(move, move.price_unit,
                                                move.product_uom_qty,
                                                move.location_dest_id,
-                                               returned, null, move.openupgrade_legacy_8_0_prodlot_id) INTO returned;
+                                               returned, null, null) INTO returned;
                 /* Creating relation */
                 INSERT INTO stock_quant_move_rel (quant_id, move_id)
                 VALUES (returned, move.id);
@@ -1061,19 +1059,19 @@ def migrate_stock_production_lot(cr, registry):
             %s IS NOT NULL AND
             picking_id IS NULL""" % (
         field_name, field_name))
-    # res1 = cr.fetchall()
-    # for move, lot in res1:
-    #     cr.execute("""
-    #         SELECT quant_id
-    #         FROM stock_quant_move_rel
-    #         WHERE move_id = %s""" % (move,))
-    #     res2 = cr.fetchall()
-    #     for quant in res2:
-    #         cr.execute("""
-    #             UPDATE stock_quant
-    #             SET lot_id = %s
-    #             WHERE id = %s""" % (lot, quant[0],))
-    #     cr.commit()
+    res1 = cr.fetchall()
+    for move, lot in res1:
+        cr.execute("""
+            SELECT quant_id
+            FROM stock_quant_move_rel
+            WHERE move_id = %s""" % (move,))
+        res2 = cr.fetchall()
+        for quant in res2:
+            cr.execute("""
+                UPDATE stock_quant
+                SET lot_id = %s
+                WHERE id = %s""" % (lot, quant[0],))
+        cr.commit()
 
 
 def reset_warehouse_data_ids(cr, registry):
