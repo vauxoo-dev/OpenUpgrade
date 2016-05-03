@@ -228,63 +228,55 @@ RETURNS varchar AS $$
         RETURN deleted; END;
     $$ LANGUAGE plpgsql;
                ''')
-    openupgrade.logged_query(
-        cr,
+    cr.execute(
         """
         SELECT delete_old_views(views) AS name
         FROM ir_ui_view AS views
-        WHERE arch ilike '%prodlot_id%'
+        WHERE arch ilike '%%prodlot_id%%'
               AND model='stock.move';
         """)
 
-    openupgrade.logged_query(
-        cr,
+    cr.execute(
         """
-DELETE FROM ir_ui_view WHERE arch ilike '%xpath%button%429%';
+DELETE FROM ir_ui_view WHERE arch ilike '%%xpath%%button%%429%%';
         """)
 
-    openupgrade.logged_query(
-        cr,
+    cr.execute(
         """
 SELECT delete_old_views(views) AS name
 FROM ir_ui_view AS views
-WHERE arch ilike '%required_date_product%' AND model='purchase.order';
+WHERE arch ilike '%%required_date_product%%' AND model='purchase.order';
         """)
 
-    openupgrade.logged_query(
-        cr,
+    cr.execute(
         """
 SELECT delete_old_views(views) AS name
 FROM ir_ui_view AS views
-WHERE arch ilike '%xpath%string%Expected Date%' AND model='purchase.order';
+WHERE arch ilike '%%xpath%%string%%Expected Date%%' AND model='purchase.order';
         """)
 
-    openupgrade.logged_query(
-        cr,
+    cr.execute(
         """
 SELECT delete_old_views(views) AS name
 FROM ir_ui_view AS views
-WHERE arch ilike '%procurement_id%' AND model='stock.warehouse.orderpoint';
+WHERE arch ilike '%%procurement_id%%' AND model='stock.warehouse.orderpoint';
         """)
 
-    openupgrade.logged_query(
-        cr,
+    cr.execute(
         """
 SELECT delete_old_views(views) AS name
 FROM ir_ui_view AS views
-WHERE arch ilike '%xpath%button%action_process%' AND model='stock.picking';
+WHERE arch ilike '%%xpath%%button%action_process%%' AND model='stock.picking';
         """)
 
-    openupgrade.logged_query(
-        cr,
+    cr.execute(
         """
 SELECT delete_old_views(views) AS name
 FROM ir_ui_view AS views
-WHERE arch ilike '%stock_journal_id%' AND model='stock.picking';
+WHERE arch ilike '%%stock_journal_id%%' AND model='stock.picking';
         """)
 
-    openupgrade.logged_query(
-        cr,
+    cr.execute(
         """
         SELECT delete_old_views(views) AS name
         FROM ir_ui_view AS views
@@ -295,6 +287,6 @@ WHERE arch ilike '%stock_journal_id%' AND model='stock.picking';
 
 def migrate_deferred(cr, pool):
     migrate_product_valuation(cr, pool)
-    migrate_procurement_order_method(cr, pool)
+    # migrate_procurement_order_method(cr, pool)
     migrate_stock_move_warehouse(cr)
     delete_wrong_views(cr)
