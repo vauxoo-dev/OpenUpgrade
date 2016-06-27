@@ -248,6 +248,32 @@ def load_module_graph(cr, graph, status=None, perform_checks=True, skip_modules=
         registry._init_modules.add(package.name)
         cr.commit_org()
 
+        # OpenUpgrade edit start:
+        # if there's a tests directory, run those if tests are enabled
+        tests_dir = os.path.join(
+            openerp.modules.module.get_module_path(package.name),
+            'migrations',
+            adapt_version(package.data['version']),
+            'tests',
+        )
+        # check for an environment variable because we don't want to mess
+        # with odoo's config.py, but we also don't want to run existing
+        # tests
+        if os.environ.get('OPENUPGRADE_TESTS') and os.path.exists(
+            tests_dir
+        ):
+            import unittest
+            threading.currentThread().testing = True
+            tests = unittest.defaultTestLoader.discover(tests_dir, top_level_dir=tests_dir)
+            report.record_result(
+                unittest.TextTestRunner(
+                    verbosity=2,
+                    stream=openerp.modules.module.TestStream(package.name),
+                ).run(tests)
+            )
+            threading.currentThread().testing = False
+        # OpenUpgrade edit end
+
     _logger.log(25, "%s modules loaded in %.2fs, %s queries", len(graph), time.time() - t0, openerp.sql_db.sql_counter - t0_sql)
 
     registry.clear_manual_fields()
@@ -500,7 +526,10 @@ def load_modules(db, force_demo=False, status=None, update_module=False):
         t0 = time.time()
         t0_sql = openerp.sql_db.sql_counter
         if openerp.tools.config['test_enable']:
-            cr.execute("SELECT name FROM ir_module_module WHERE state='installed'")
+            if update_module:
+                cr.execute("SELECT name FROM ir_module_module WHERE state='installed' and name = ANY(%s)", (processed_modules,))
+            else:
+                cr.execute("SELECT name FROM ir_module_module WHERE state='installed'")
             for module_name in cr.fetchall():
                 report.record_result(openerp.modules.module.run_unit_tests(module_name[0], cr.dbname, position=runs_post_install))
             _logger.log(25, "All post-tested in %.2fs, %s queries", time.time() - t0, openerp.sql_db.sql_counter - t0_sql)
