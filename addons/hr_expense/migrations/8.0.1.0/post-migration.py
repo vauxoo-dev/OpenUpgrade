@@ -38,9 +38,9 @@ def hr_expense_ok_field_func(cr, pool, id, vals):
 def migrate(cr, version):
     pool = pooler.get_pool(cr.dbname)
     uid = SUPERUSER_ID
-    openupgrade_80.set_message_last_post(
-        cr, uid, pool, ['hr.expense.expense']
-    )
+    # openupgrade_80.set_message_last_post(
+    #     cr, uid, pool, ['hr.expense.expense']
+    # )
     openupgrade.move_field_m2o(
         cr, pool,
         'product.product', openupgrade.get_legacy_name('hr_expense_ok'),

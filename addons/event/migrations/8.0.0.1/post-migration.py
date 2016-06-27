@@ -28,7 +28,7 @@ from openerp.openupgrade.openupgrade_80 import set_message_last_post
 @migrate()
 def migrate(cr, version):
     pool = pooler.get_pool(cr.dbname)
-    set_message_last_post(
-        cr, SUPERUSER_ID, pool, ['event.event', 'event.registration'])
+    # set_message_last_post(
+    #     cr, SUPERUSER_ID, pool, ['event.event', 'event.registration'])
     convert_field_to_html(cr, 'event_event', get_legacy_name('note'),
                           'description')

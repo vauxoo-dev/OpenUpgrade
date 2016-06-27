@@ -25,6 +25,9 @@ from openerp import models
 from openerp.openupgrade import openupgrade, openupgrade_80
 from openerp.modules.registry import RegistryManager
 from openerp import SUPERUSER_ID as uid
+from openerp import SUPERUSER_ID
+from openerp import api
+
 
 logger = logging.getLogger('OpenUpgrade.stock')
 default_spec = {
@@ -862,7 +865,7 @@ def migrate(cr, version):
 
     migrate_product(cr, registry)
     openupgrade.delete_model_workflow(cr, 'stock.picking')
-    openupgrade_80.set_message_last_post(
-        cr, uid, registry, ['stock.production.lot', 'stock.picking'])
+    # openupgrade_80.set_message_last_post(
+    #     cr, uid, registry, ['stock.production.lot', 'stock.picking'])
     migrate_move_inventory(cr, registry)
     reset_warehouse_data_ids(cr, registry)

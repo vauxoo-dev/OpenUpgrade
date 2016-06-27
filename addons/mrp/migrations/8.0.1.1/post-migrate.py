@@ -229,6 +229,6 @@ def migrate(cr, version):
         migrate_product(cr, pool)
         migrate_stock_warehouse(cr, pool)
         migrate_procurement_order(cr, pool)
-        openupgrade_80.set_message_last_post(
-            cr, SUPERUSER_ID, pool,
-            ['mrp.bom', 'mrp.production', 'mrp.production.workcenter.line'])
+        # openupgrade_80.set_message_last_post(
+        #     cr, SUPERUSER_ID, pool,
+        #     ['mrp.bom', 'mrp.production', 'mrp.production.workcenter.line'])

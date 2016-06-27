@@ -10,7 +10,7 @@ from openupgradelib import openupgrade, openupgrade_80
 def migrate(cr, version):
     pool = pooler.get_pool(cr.dbname)
     uid = SUPERUSER_ID
-    openupgrade_80.set_message_last_post(cr, uid, pool, ['crm.helpdesk'])
+    # openupgrade_80.set_message_last_post(cr, uid, pool, ['crm.helpdesk'])
     openupgrade.map_values(
         cr, 'priority', openupgrade.get_legacy_name('priority'),
         [('1', '2'), ('3', '1'), ('4', '0'), ('5', '0')], table='crm_helpdesk')

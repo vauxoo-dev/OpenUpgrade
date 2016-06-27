@@ -48,8 +48,8 @@ def migrate(cr, version):
             cr, SUPERUSER_ID, 'crm', 'mt_salesteam_lead_stage')[1])
 
     # Update event tracking datetime fields
-    openupgrade_80.set_message_last_post(
-        cr, SUPERUSER_ID, registry, ['crm.phonecall', 'crm.lead'])
+    # openupgrade_80.set_message_last_post(
+    #     cr, SUPERUSER_ID, registry, ['crm.phonecall', 'crm.lead'])
     openupgrade.logged_query(
         cr,
         """

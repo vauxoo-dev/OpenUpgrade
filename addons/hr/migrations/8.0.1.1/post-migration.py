@@ -27,5 +27,5 @@ from openerp import pooler, SUPERUSER_ID
 @openupgrade.migrate()
 def migrate(cr, version):
     pool = pooler.get_pool(cr.dbname)
-    openupgrade_80.set_message_last_post(
-        cr, SUPERUSER_ID, pool, ['hr.job', 'hr.employee'])
+    # openupgrade_80.set_message_last_post(
+    #     cr, SUPERUSER_ID, pool, ['hr.job', 'hr.employee'])

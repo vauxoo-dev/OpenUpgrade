@@ -214,5 +214,5 @@ def migrate(cr, version):
         set state='needsAction' where state in ('needs-action')''')
     # load modified noupdate data
     openupgrade.load_data(cr, 'calendar', 'migrations/8.0.1.0/data.xml')
-    openupgrade_80.set_message_last_post(
-        cr, SUPERUSER_ID, pool, ['calendar.event'])
+    # openupgrade_80.set_message_last_post(
+    #     cr, SUPERUSER_ID, pool, ['calendar.event'])

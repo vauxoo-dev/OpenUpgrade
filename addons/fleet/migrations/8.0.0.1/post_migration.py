@@ -28,6 +28,6 @@ from openerp.openupgrade import openupgrade, openupgrade_80
 def migrate(cr, version):
     pool = pooler.get_pool(cr.dbname)
     uid = SUPERUSER_ID
-    openupgrade_80.set_message_last_post(
-        cr, uid, pool, ['fleet.vehicule']
-    )
+    # openupgrade_80.set_message_last_post(
+    #     cr, uid, pool, ['fleet.vehicule']
+    # )

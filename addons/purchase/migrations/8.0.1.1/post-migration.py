@@ -194,4 +194,4 @@ def migrate(cr, version):
     migrate_product_supply_method(cr)
     migrate_procurement_order(cr)
     migrate_stock_warehouse(cr, pool)
-    openupgrade_80.set_message_last_post(cr, uid, pool, ['purchase.order'])
+    # openupgrade_80.set_message_last_post(cr, uid, pool, ['purchase.order'])

@@ -9,5 +9,5 @@ from openupgradelib import openupgrade, openupgrade_80
 @openupgrade.migrate()
 def migrate(cr, version):
     pool = pooler.get_pool(cr.dbname)
-    openupgrade_80.set_message_last_post(
-        cr, SUPERUSER_ID, pool, ['hr_timesheet_sheet.sheet'])
+    # openupgrade_80.set_message_last_post(
+    #     cr, SUPERUSER_ID, pool, ['hr_timesheet_sheet.sheet'])

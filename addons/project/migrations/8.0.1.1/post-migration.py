@@ -40,9 +40,9 @@ def migrate(cr, version):
         set_parent_thread_id=True,
         defaults_id_key='project_id')
 
-    openupgrade_80.set_message_last_post(
-        cr, uid, registry, ['project.project', 'project.task']
-    )
+    # openupgrade_80.set_message_last_post(
+    #     cr, uid, registry, ['project.project', 'project.task']
+    # )
 
     openupgrade.load_data(
         cr, 'project', 'migrations/8.0.1.1/noupdate_changes.xml')

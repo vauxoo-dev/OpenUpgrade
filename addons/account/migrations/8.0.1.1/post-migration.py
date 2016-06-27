@@ -49,7 +49,7 @@ def update_link_to_moves(cr):
 def migrate(cr, version):
     pool = pooler.get_pool(cr.dbname)
     uid = SUPERUSER_ID
-    openupgrade_80.set_message_last_post(
-        cr, uid, pool, ['account.bank.statement', 'account.invoice']
-    )
+    # openupgrade_80.set_message_last_post(
+    #     cr, uid, pool, ['account.bank.statement', 'account.invoice']
+    # )
     update_link_to_moves(cr)

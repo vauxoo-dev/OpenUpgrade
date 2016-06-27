@@ -29,8 +29,8 @@ def migrate(cr, version):
     registry = RegistryManager.get(cr.dbname)
     openupgrade.load_data(
         cr, 'sale', 'migrations/8.0.1.0/noupdate_changes.xml')
-    openupgrade_80.set_message_last_post(
-        cr, SUPERUSER_ID, registry, ['sale.order'])
+    # openupgrade_80.set_message_last_post(
+    #     cr, SUPERUSER_ID, registry, ['sale.order'])
     openupgrade.date_to_datetime_tz(
         cr, 'sale_order', 'user_id', openupgrade.get_legacy_name('date_order'),
         'date_order')

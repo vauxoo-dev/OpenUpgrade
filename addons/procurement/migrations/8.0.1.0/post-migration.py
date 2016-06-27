@@ -73,8 +73,6 @@ def process_states(cr):
 def migrate(cr, version):
     pool = pooler.get_pool(cr.dbname)
     post_messages(cr, pool)
-    openupgrade_80.set_message_last_post(
-        cr, SUPERUSER_ID, pool, ['procurement.order'])
     process_states(cr)
     openupgrade.load_data(
         cr, 'procurement', 'migrations/8.0.1.0/noupdate_changes.xml')
