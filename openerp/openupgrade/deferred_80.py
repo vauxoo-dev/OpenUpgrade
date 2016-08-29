@@ -51,7 +51,6 @@ def migrate_product_valuation(cr, pool):
         """)
     field_id = cr.fetchone()[0]
 
-    property_obj = pool['ir.property']
     default = 'manual_periodic'  # as per stock_account/stock_account_data.xml
 
     cr.execute(
@@ -69,16 +68,13 @@ def migrate_product_valuation(cr, pool):
         if not value or template_id in seen_ids:
             continue
         seen_ids.append(template_id)
-        property_obj.create(
-            cr, SUPERUSER_ID, {
-                'fields_id': field_id,
-                'company_id': False,
-                'res_id': 'product.template,{}'.format(template_id),
-                'name': 'Valuation Property',
-                'type': 'selection',
-                'value_text': value,
-                })
-
+        cr.execute('''
+                   INSERT INTO ir_property (create_uid, create_date, write_uid,
+                   write_date, fields_id, res_id, name, type, value_text)
+                   VALUES (%s, NOW(), %s, NOW(), %s, %s, 'valuation',
+                           'selection', %s)
+                   ''', (SUPERUSER_ID, SUPERUSER_ID, field_id,
+                         'product.template,{}'.format(template_id), value))
     cr.execute(
         "ALTER TABLE product_product DROP COLUMN {}".format(valuation_column))
 
