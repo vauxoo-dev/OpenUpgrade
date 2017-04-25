@@ -1292,14 +1292,16 @@ class AccountPartialReconcile(models.Model):
             That new journal entry is made in the company `currency_exchange_journal_id` and one of its journal
             items is matched with the other lines to balance the full reconciliation.
         """
+        journal = self.env['account.journal']
         for rec in self:
-            if not rec.company_id.currency_exchange_journal_id:
-                raise UserError(_("You should configure the 'Exchange Rate Journal' in the accounting settings, to manage automatically the booking of accounting entries related to differences between exchange rates."))
-            if not self.company_id.income_currency_exchange_account_id.id:
-                raise UserError(_("You should configure the 'Gain Exchange Rate Account' in the accounting settings, to manage automatically the booking of accounting entries related to differences between exchange rates."))
-            if not self.company_id.expense_currency_exchange_account_id.id:
-                raise UserError(_("You should configure the 'Loss Exchange Rate Account' in the accounting settings, to manage automatically the booking of accounting entries related to differences between exchange rates."))
-            move_vals = {'journal_id': rec.company_id.currency_exchange_journal_id.id, 'rate_diff_partial_rec_id': rec.id}
+            # if not rec.company_id.currency_exchange_journal_id:
+            #     raise UserError(_("You should configure the 'Exchange Rate Journal' in the accounting settings, to manage automatically the booking of accounting entries related to differences between exchange rates."))
+            # if not self.company_id.income_currency_exchange_account_id.id:
+            #     raise UserError(_("You should configure the 'Gain Exchange Rate Account' in the accounting settings, to manage automatically the booking of accounting entries related to differences between exchange rates."))
+            # if not self.company_id.expense_currency_exchange_account_id.id:
+            #     raise UserError(_("You should configure the 'Loss Exchange Rate Account' in the accounting settings, to manage automatically the booking of accounting entries related to differences between exchange rates."))
+            journal_brw = journal.search([('company_id', '=', rec.company_id.id)], limit=1)
+            move_vals = {'journal_id': journal_brw.id, 'rate_diff_partial_rec_id': rec.id}
 
             # The move date should be the maximum date between payment and invoice (in case
             # of payment in advance). However, we should make sure the move date is not
@@ -1323,7 +1325,7 @@ class AccountPartialReconcile(models.Model):
                 'name': _('Currency exchange rate difference'),
                 'debit': amount_diff > 0 and amount_diff or 0.0,
                 'credit': amount_diff < 0 and -amount_diff or 0.0,
-                'account_id': amount_diff > 0 and rec.company_id.currency_exchange_journal_id.default_debit_account_id.id or rec.company_id.currency_exchange_journal_id.default_credit_account_id.id,
+                'account_id': amount_diff > 0 and rec.company_id.currency_exchange_journal_id.default_debit_account_id.id or rec.company_id.currency_exchange_journal_id.default_credit_account_id.id or rec.debit_move_id.account_id.id,
                 'move_id': move.id,
                 'currency_id': currency.id,
                 'amount_currency': diff_in_currency,
